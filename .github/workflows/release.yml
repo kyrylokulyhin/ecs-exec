@@ -114,11 +114,9 @@ jobs:
 
       - name: Commit and Push Formula Update
         run: |
-          pwd
-          ls -la
           cd homebrew-cli-tools/
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add homebrew-cli-tools/Formula/ecs-exec.rb
           git commit -m "Update ecs-exec formula to version ${{ github.event.release.tag_name }}"
-          git push
+          git push origin HEAD:main
