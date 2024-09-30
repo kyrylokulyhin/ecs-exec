@@ -65,13 +65,13 @@ with flags or positionally.
 #### Basic Usage
 
 ```bash
-./ecs-exec-cli --profile <AWS_PROFILE> --region <AWS_REGION> <CLUSTER_NAME> <TASK_ID> <COMMAND>
+./ecs-exec-cli --profile <AWS_PROFILE> --region <AWS_REGION> <SERVICE> <CONTAINER> <COMMAND>
 ```
 
 #### Example:
 
 ```bash
-./ecs-exec-cli --profile my-aws-profile --region us-east-1 my-cluster-name my-task-id "/bin/bash"
+./ecs-exec-cli --profile my-aws-profile --region us-east-1 my-service-name my-container-name "/bin/bash"
 ```
 
 #### This command will:
@@ -83,9 +83,8 @@ with flags or positionally.
 
 - --profile (-p): The AWS CLI profile to use (defaults to dt-infra).
 - --region (-r): The AWS region to use (defaults to eu-north-1).
-- --container (-c): The container within the ECS task (defaults to app).
-- <CLUSTER_NAME>: The name of the ECS cluster (positional).
-- <TASK_ID>: The ECS task ID (positional).
+- <SERVICE>: The name of the ECS service (positional).
+- <CONTAINER>: The ECS container name (positional).
 - <COMMAND>: The command to execute inside the container (positional).
 
 #### Additional Notes
