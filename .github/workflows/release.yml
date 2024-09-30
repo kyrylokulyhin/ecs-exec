@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
 
+  pull_request:
+    branches:
+      - main
+      - feature/github-actions
+
 jobs:
   build:
     name: Build and Release Binaries
@@ -11,7 +16,7 @@ jobs:
 
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-gnu, x86_64-apple-darwin]
+        target: [x86_64-apple-darwin]
 
     steps:
       - name: Checkout Code
@@ -30,6 +35,7 @@ jobs:
         run: |
           mkdir -p release
           cp target/${{ matrix.target }}/release/ecs-exec release/
+          zip -j release/ecs-exec-${{ matrix.target }}.zip release/ecs-exec*
 
       - name: Generate Checksum
         id: generate_checksum
