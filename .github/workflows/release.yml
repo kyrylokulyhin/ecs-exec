@@ -39,6 +39,8 @@ jobs:
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
           asset_path: release/ecs-exec-${{ matrix.target }}.zip  # Use explicit path, no wildcards
@@ -47,6 +49,8 @@ jobs:
 
       - name: Upload Checksum
         uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
           asset_path: release/ecs-exec-${{ matrix.target }}.sha256
