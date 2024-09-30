@@ -74,7 +74,7 @@ jobs:
       - name: Checkout Homebrew Tap Repository
         uses: actions/checkout@v2
         with:
-          repository: kyrylokulyhin/ecs-exec
+          repository: kyrylokulyhin/homebrew-cli-tools
           token: ${{ secrets.GITHUB_TOKEN }}
           path: homebrew-cli-tools
 
@@ -90,7 +90,6 @@ jobs:
 
       - name: Check if Formula Exists
         run: |
-          cd homebrew-cli-tools/
           if [ ! -f "homebrew-cli-tools/Formula/ecs-exec.rb" ]; then
             echo "Formula file not found!"
             exit 1
@@ -99,7 +98,6 @@ jobs:
       - name: Update Homebrew Formula
         run: |
           CHECKSUM=$(awk '{ print $1 }' ecs-exec-${{ matrix.target }}.sha256)
-          cd homebrew-cli-tools/
           FORMULA_PATH="homebrew-cli-tools/Formula/ecs-exec.rb"
           DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.zip"
 
@@ -124,6 +122,6 @@ jobs:
           cd homebrew-cli-tools/
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add homebrew-cli-tools/Formula/ecs-exec.rb
+          git add Formula/ecs-exec.rb
           git commit -m "Update ecs-exec formula to version ${{ github.event.release.tag_name }}"
           git push origin HEAD:main
