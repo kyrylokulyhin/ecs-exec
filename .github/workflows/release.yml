@@ -76,7 +76,13 @@ jobs:
 
       - name: Download Checksum
         run: |
-          curl -L -o ecs-exec-${{ matrix.target }}.sha256 ${{ steps.generate_checksum.outputs.sha256 }}
+          if [ -z "${{ matrix.target }}" ]; then
+            echo "Target not specified, skipping download"
+            exit 1
+          fi
+          DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.sha256"
+          echo "Downloading checksum from $DOWNLOAD_URL"
+          curl -L -o ecs-exec-${{ matrix.target }}.sha256 $DOWNLOAD_URL
 
       - name: Update Formula
         run: |
