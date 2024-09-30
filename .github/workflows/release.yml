@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     name: Build and Release Binaries
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
 
     strategy:
       matrix:
