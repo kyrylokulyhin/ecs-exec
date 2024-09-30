@@ -100,8 +100,15 @@ jobs:
         run: |
           cd homebrew-cli-tools/
           FORMULA_PATH="homebrew-cli-tools/Formula/ecs-exec.rb"
-          CHECKSUM=$(cat ecs-exec-${{ matrix.target }}.sha256 | awk '{ print $1 }')
+          CHECKSUM=$(awk '{ print $1 }' ecs-exec-${{ matrix.target }}.sha256)
           DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.zip"
+
+          if [ -z "$CHECKSUM" ]; then
+            echo "Error: SHA256 checksum is empty!"
+            exit 1
+          else
+          echo "SHA256 checksum: $CHECKSUM"
+          fi
 
           # Replace the URL in the formula
           sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" $FORMULA_PATH
