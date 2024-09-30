@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
 
+  pull_request:
+    branches:
+      - main
+      - feature/github-actions
+
 jobs:
   build:
     name: Build and Release Binaries
