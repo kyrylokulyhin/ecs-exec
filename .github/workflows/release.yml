@@ -98,6 +98,7 @@ jobs:
 
       - name: Update Homebrew Formula
         run: |
+          cd homebrew-cli-tools/
           FORMULA_PATH="homebrew-cli-tools/Formula/ecs-exec.rb"
           CHECKSUM=$(cat ecs-exec-${{ matrix.target }}.sha256 | awk '{ print $1 }')
           DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.zip"
@@ -113,6 +114,9 @@ jobs:
 
       - name: Commit and Push Formula Update
         run: |
+          pwd
+          ls -la
+          cd homebrew-cli-tools/
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add homebrew-cli-tools/Formula/ecs-exec.rb
