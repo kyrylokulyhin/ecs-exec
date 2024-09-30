@@ -4,10 +4,9 @@ on:
   release:
     types: [published]
 
-  pull_request:
-    branches:
-      - main
-      - feature/github-actions
+permissions:
+  contents: write
+
 
 jobs:
   build:
