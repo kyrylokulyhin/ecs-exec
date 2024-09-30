@@ -92,6 +92,7 @@ jobs:
         run: |
           pwd
           ls -la
+          ls -la homebrew-cli-tools/
           if [ ! -f "homebrew-cli-tools/Formula/ecs-exec.rb" ]; then
             echo "Formula file not found!"
             exit 1
