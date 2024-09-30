@@ -81,22 +81,27 @@ jobs:
       - name: Download Checksum
         run: |
           if [ -z "${{ matrix.target }}" ]; then
-            echo "Target not specified, skipping download"
+            echo "Target not specified, skipping download" >> $GITHUB_ENV
             exit 1
           fi
           DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.sha256"
-          echo "Downloading checksum from $DOWNLOAD_URL"
+          echo "Downloading checksum from $DOWNLOAD_URL" >> $GITHUB_ENV
           curl -L -o ecs-exec-${{ matrix.target }}.sha256 $DOWNLOAD_URL
 
-      - name: Update Formula
+      - name: Update Homebrew Formula
         run: |
           FORMULA_PATH="homebrew-cli-tools/Formula/ecs-exec.rb"
           CHECKSUM=$(cat ecs-exec-${{ matrix.target }}.sha256 | awk '{ print $1 }')
           DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.zip"
-          
-          sed -i "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" $FORMULA_PATH
-          sed -i "s|sha256 \".*\"|sha256 \"${CHECKSUM}\"|" $FORMULA_PATH
-          sed -i "s|version \".*\"|version \"${{ github.event.release.tag_name }}\"|" $FORMULA_PATH
+
+          # Replace the URL in the formula
+          sed -i '' "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" $FORMULA_PATH
+
+          # Replace the SHA256 checksum in the formula
+          sed -i '' "s|sha256 \".*\"|sha256 \"${CHECKSUM}\"|" $FORMULA_PATH
+
+          # Replace the version in the formula
+          sed -i '' "s|version \".*\"|version \"${{ github.event.release.tag_name }}\"|" $FORMULA_PATH
 
       - name: Commit and Push Formula Update
         run: |
