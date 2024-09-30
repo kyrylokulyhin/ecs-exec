@@ -63,8 +63,12 @@ jobs:
 
   update-homebrew:
     name: Update Homebrew Formula
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     needs: build
+
+    strategy:
+      matrix:
+        target: [ x86_64-apple-darwin ]
 
     steps:
       - name: Checkout Homebrew Tap Repository
