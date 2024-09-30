@@ -81,11 +81,11 @@ jobs:
       - name: Download Checksum
         run: |
           if [ -z "${{ matrix.target }}" ]; then
-            echo "Target not specified, skipping download" >> $GITHUB_ENV
+            echo "Target not specified, skipping download"
             exit 1
           fi
           DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.sha256"
-          echo "Downloading checksum from $DOWNLOAD_URL" >> $GITHUB_ENV
+          echo "Downloading checksum from $DOWNLOAD_URL"
           curl -L -o ecs-exec-${{ matrix.target }}.sha256 $DOWNLOAD_URL
 
       - name: Update Homebrew Formula
