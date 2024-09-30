@@ -88,6 +88,15 @@ jobs:
           echo "Downloading checksum from $DOWNLOAD_URL"
           curl -L -o ecs-exec-${{ matrix.target }}.sha256 $DOWNLOAD_URL
 
+      - name: Check if Formula Exists
+        run: |
+          pwd
+          ls -la
+          if [ ! -f "homebrew-cli-tools/Formula/ecs-exec.rb" ]; then
+            echo "Formula file not found!"
+            exit 1
+          fi
+
       - name: Update Homebrew Formula
         run: |
           FORMULA_PATH="homebrew-cli-tools/Formula/ecs-exec.rb"
