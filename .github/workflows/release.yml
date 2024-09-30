@@ -98,9 +98,9 @@ jobs:
 
       - name: Update Homebrew Formula
         run: |
+          CHECKSUM=$(awk '{ print $1 }' ecs-exec-${{ matrix.target }}.sha256)
           cd homebrew-cli-tools/
           FORMULA_PATH="homebrew-cli-tools/Formula/ecs-exec.rb"
-          CHECKSUM=$(awk '{ print $1 }' ecs-exec-${{ matrix.target }}.sha256)
           DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.zip"
 
           if [ -z "$CHECKSUM" ]; then
