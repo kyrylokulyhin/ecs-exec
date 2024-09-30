@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build and Release Binaries
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu, x86_64-apple-darwin]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Build the Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create Release Asset
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/ecs-exec release/
+
+      - name: Generate Checksum
+        id: generate_checksum
+        run: |
+          shasum -a 256 release/ecs-exec-${{ matrix.target }}.zip > release/ecs-exec-${{ matrix.target }}.sha256
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: release/*
+          asset_name: ecs-exec-${{ matrix.target }}.zip
+          asset_content_type: application/zip
+
+      - name: Upload Checksum
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: release/ecs-exec-${{ matrix.target }}.sha256
+          asset_name: ecs-exec-${{ matrix.target }}.sha256
+          asset_content_type: text/plain
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout Homebrew Tap Repository
+        uses: actions/checkout@v2
+        with:
+          repository: kyrylokulyhin/ecs-exec
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: homebrew-cli-tools
+
+      - name: Download Checksum
+        run: |
+          curl -L -o ecs-exec-${{ matrix.target }}.sha256 ${{ steps.generate_checksum.outputs.sha256 }}
+
+      - name: Update Formula
+        run: |
+          FORMULA_PATH="homebrew-cli-tools/Formula/ecs-exec.rb"
+          CHECKSUM=$(cat ecs-exec-${{ matrix.target }}.sha256 | awk '{ print $1 }')
+          DOWNLOAD_URL="https://github.com/kyrylokulyhin/ecs-exec/releases/download/${{ github.event.release.tag_name }}/ecs-exec-${{ matrix.target }}.zip"
+          
+          sed -i "s|url \".*\"|url \"${DOWNLOAD_URL}\"|" $FORMULA_PATH
+          sed -i "s|sha256 \".*\"|sha256 \"${CHECKSUM}\"|" $FORMULA_PATH
+          sed -i "s|version \".*\"|version \"${{ github.event.release.tag_name }}\"|" $FORMULA_PATH
+
+      - name: Commit and Push Formula Update
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add homebrew-cli-tools/Formula/ecs-exec.rb
+          git commit -m "Update ecs-exec formula to version ${{ github.event.release.tag_name }}"
+          git push
