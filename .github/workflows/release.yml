@@ -46,7 +46,7 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: release/*
+          asset_path: release/ecs-exec-${{ matrix.target }}.zip  # Use explicit path, no wildcards
           asset_name: ecs-exec-${{ matrix.target }}.zip
           asset_content_type: application/zip
 
