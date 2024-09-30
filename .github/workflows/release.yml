@@ -35,6 +35,7 @@ jobs:
         run: |
           mkdir -p release
           cp target/${{ matrix.target }}/release/ecs-exec release/
+          zip -j release/ecs-exec-${{ matrix.target }}.zip release/ecs-exec*
 
       - name: Generate Checksum
         id: generate_checksum
