@@ -1,0 +1,10 @@
+[package]
+name = "ecs-exec"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aws-config = "1.5.6"
+aws-sdk-ecs = "1.46.0"
+tokio = { version = "1.40.0", features = ["full"] }
+clap = { version = "4.0", features = ["derive"] }
