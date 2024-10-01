@@ -1,16 +1,20 @@
+mod pty;
+
 use clap::Parser;
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_ecs::Client as EcsClient;
 use aws_sdk_ecs::Error as EcsError;
 use aws_sdk_ecs::config::Region as Region;
+use aws_sdk_sts::Client as StsClient;
+use aws_sdk_sts::operation::get_caller_identity::GetCallerIdentityError;
 use std::error::Error;
 use std::io::{self, Write};
-use std::process::{Command, Stdio};
-use std::io::Read;
+use std::process::{Command};
 
 /// A CLI tool to interactively run ECS `execute-command`
 #[derive(Parser, Debug)]
-#[command(author = "Kyrylo Kulyhin", version = "0.1.0", about = "ECS execute-command CLI tool", long_about = None)]
+#[command(author = "Kyrylo Kulyhin", version = "0.1.3", about = "ECS execute-command CLI tool", long_about = None
+)]
 struct Cli {
     /// The AWS profile to use
     #[arg(long, short = 'p', default_value = "dt-infra")]
@@ -41,6 +45,41 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let aws_profile = args.profile.clone();
     let container_name = args.container.clone();
 
+
+    match check_sso_session(&aws_profile).await {
+        Ok(_) => {
+            // Proceed with ECS client operations if the session exists
+            // let region_provider = RegionProviderChain::first_try(Region::new(aws_region.clone()))
+            //     .or_default_provider();
+
+            // let shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            //     .region(region_provider)
+            //     .profile_name(aws_profile.clone())
+            //     .load()
+            //     .await;
+
+            println!("SSO session is active. Proceeding with ECS operations for container: {}", container_name);
+        }
+        Err(_) => {
+            if prompt_user_for_login() {
+                let status = Command::new("aws")
+                    .arg("--profile")
+                    .arg(aws_profile.clone())
+                    .arg("sso")
+                    .arg("login")
+                    .status()?; // Wait for the command to complete
+
+                if !status.success() {
+                    println!("AWS SSO login failed. Exiting the program.");
+                    return Ok(()); // Exit if login fails
+                }
+                println!("Please run `aws sso login` in another terminal, then re-run this program.");
+            } else {
+                println!("Exiting the program.");
+            }
+        }
+    }
+
     let region_provider = RegionProviderChain::first_try(Region::new(aws_region.clone())).or_default_provider();
 
     let shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
@@ -48,94 +87,75 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .profile_name(aws_profile.clone())
         .load()
         .await;
-    let ecs_client = EcsClient::new(&shared_config);
 
+    let ecs_client = EcsClient::new(&shared_config);
     let cluster_arn = show_clusters(&ecs_client).await?;
     let task_arn = show_tasks(&ecs_client, &cluster_arn, &args.service).await?;
 
-    let mut child = Command::new("aws")
-        .arg("--profile")
-        .arg(aws_profile)
-        .arg("--region")
-        .arg(aws_region)
-        .arg("ecs")
-        .arg("execute-command")
-        .arg("--cluster")
-        .arg(cluster_arn)
-        .arg("--task")
-        .arg(task_arn)
-        .arg("--container")
-        .arg(container_name)
-        .arg("--interactive")
-        .arg("--command")
-        .arg(args.command)
-        .stdin(Stdio::piped())  // Attach stdin for interactive input
-        .stdout(Stdio::piped()) // Capture stdout for interactive output
-        .stderr(Stdio::piped()) // Capture stderr for error handling
-        .spawn()?;
+    let cmd = "aws";
+    let args = [
+        "--profile", &*aws_profile,
+        "--region", &*aws_region,
+        "ecs", "execute-command",
+        "--cluster", &*cluster_arn,
+        "--task", &*task_arn,
+        "--container", &*container_name,
+        "--interactive",
+        "--command", &*args.command,
+    ];
 
-    // Handles for child's stdin, stdout, and stderr
-    let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-    let mut stdout = child.stdout.take().expect("Failed to open stdout");
-    let mut stderr = child.stderr.take().expect("Failed to open stderr");
-
-    // Spawn a thread to read from stdout and print to the user's console
-    let stdout_thread = std::thread::spawn(move || {
-        let mut stdout_buf = [0; 1024];
-        let stdout = &mut stdout;
-
-        loop {
-            match stdout.read(&mut stdout_buf) {
-                Ok(0) => break, // End of output
-                Ok(n) => {
-                    print!("{}", String::from_utf8_lossy(&stdout_buf[..n]));
-                    io::stdout().flush().unwrap(); // Ensure output is printed immediately
-                }
-                Err(err) => {
-                    eprintln!("Error reading stdout: {:?}", err);
-                    break;
-                }
-            }
-        }
-    });
-
-    // Spawn a thread to read from stderr and print errors to the console
-    let stderr_thread = std::thread::spawn(move || {
-        let mut stderr_buf = [0; 1024];
-        let stderr = &mut stderr;
-
-        loop {
-            match stderr.read(&mut stderr_buf) {
-                Ok(0) => break, // End of error output
-                Ok(n) => {
-                    eprint!("{}", String::from_utf8_lossy(&stderr_buf[..n]));
-                    io::stderr().flush().unwrap(); // Ensure error output is printed immediately
-                }
-                Err(err) => {
-                    eprintln!("Error reading stderr: {:?}", err);
-                    break;
-                }
-            }
-        }
-    });
-
-    // Reading input from the user and writing it to the command's stdin
-    let mut input = String::new();
-    while io::stdin().read_line(&mut input).unwrap() > 0 {
-        stdin.write_all(input.as_bytes())?;
-        stdin.flush()?;
-        input.clear();
-    }
-
-    // Wait for stdout and stderr threads to finish
-    stdout_thread.join().expect("Failed to join stdout thread");
-    stderr_thread.join().expect("Failed to join stderr thread");
-
-    // Wait for the command to finish
-    let status = child.wait()?;
-    println!("Command exited with status: {}", status);
+    pty::spawn_pty_shell(cmd, &args)?;
 
     Ok(())
+}
+
+async fn check_sso_session(profile: &str) -> Result<(), aws_sdk_sts::error::SdkError<GetCallerIdentityError>> {
+    let region_provider = RegionProviderChain::default_provider();
+    let shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(region_provider)
+        .profile_name(profile)
+        .load()
+        .await;
+
+    let sts_client = StsClient::new(&shared_config);
+
+    // Call `get_caller_identity` to verify the session is active
+    match sts_client.get_caller_identity().send().await {
+        Ok(_) => Ok(()),
+        Err(err) => match err {
+            aws_sdk_sts::error::SdkError::ServiceError { .. } => {
+                println!("Service error occurred: {:?}", err);
+                Err(err)
+            }
+
+            aws_sdk_sts::error::SdkError::TimeoutError(_) => {
+                println!("The request timed out. Please check your connection.");
+                Err(err)
+            }
+            aws_sdk_sts::error::SdkError::DispatchFailure(_) => {
+                println!("Network error. Please check your internet connection.");
+                Err(err)
+            }
+            _ => {
+                println!("An unknown error occurred: {:?}", err);
+                Err(err)
+            }
+        },
+    }
+}
+
+fn prompt_user_for_login() -> bool {
+    println!("No active AWS SSO session found.");
+    println!("Please run the following command to login via AWS SSO:");
+    println!("  aws sso login");
+    print!("Would you like to retry after logging in? (Y/n): ");
+    io::stdout().flush().unwrap(); // Make sure prompt gets printed immediately
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).expect("Failed to read input");
+    let input = input.trim().to_lowercase();
+
+    input == "y" || input == "yes"
 }
 
 // List your clusters.
