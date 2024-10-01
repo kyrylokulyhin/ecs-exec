@@ -72,10 +72,11 @@ jobs:
 
     steps:
       - name: Checkout Homebrew Tap Repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
+          persist-credentials: false
           repository: kyrylokulyhin/homebrew-cli-tools
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
           path: homebrew-cli-tools
 
       - name: Download Checksum
@@ -124,4 +125,4 @@ jobs:
           git config user.email "actions@github.com"
           git add Formula/ecs-exec.rb
           git commit -m "Update ecs-exec formula to version ${{ github.event.release.tag_name }}"
-          git push origin HEAD:main
+          git push https://kyrylokulyhin:${{ secrets.REPO_ACCESS_TOKEN }}@github.com/kyrylokulyhin/homebrew-cli-tools.git HEAD:main
