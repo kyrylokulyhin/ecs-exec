@@ -12,3 +12,5 @@ aws-sdk-sts = "1.44.0"
 nix = { version = "0.29.0", features = ["term", "process", "fs"] }
 portable-pty = "0.8.1"
 termios = "0.3"
+inquire = "0.7.5"
+ini = "1.3.0"
