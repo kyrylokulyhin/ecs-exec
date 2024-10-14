@@ -8,14 +8,18 @@ use aws_sdk_ecs::config::Region as Region;
 use aws_sdk_sts::Client as StsClient;
 use aws_sdk_sts::operation::get_caller_identity::GetCallerIdentityError;
 use std::error::Error;
-use std::io::{self, Write};
 use std::process::{Command};
+use inquire::{Select, Confirm, InquireError};
+use inquire::error::InquireResult;
 
 /// A CLI tool to interactively run ECS `execute-command`
 #[derive(Parser, Debug)]
-#[command(author = "Kyrylo Kulyhin", version = "0.1.3", about = "ECS execute-command CLI tool", long_about = None
+#[command(author = "Kyrylo Kulyhin", version = "0.2.0", about = "ECS execute-command CLI tool", long_about = None
 )]
 struct Cli {
+    #[arg(long, short = 'i', conflicts_with = "service")]
+    interactive: bool,
+
     /// The AWS profile to use
     #[arg(long, short = 'p', default_value = "dt-infra")]
     profile: String,
@@ -25,8 +29,8 @@ struct Cli {
     region: String,
 
     /// The ECS service name
-    #[arg()]
-    service: String,
+    #[arg(required_unless_present = "interactive")]
+    service: Option<String>,
 
     /// The container name in the ECS task
     #[arg(default_value = "app")]
@@ -37,45 +41,82 @@ struct Cli {
     command: String,
 }
 
+#[macro_use]
+extern crate ini;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
 
-    let aws_region = args.region.clone();
-    let aws_profile = args.profile.clone();
+    let mut aws_region = args.region.clone();
+    let mut aws_profile = args.profile.clone();
     let container_name = args.container.clone();
+    let interactive = args.interactive;
 
+    if interactive {
+        println!("Interactive mode is enabled.");
+
+        let aws_config = std::env::var("HOME").unwrap() + "/.aws/config";
+        let map = ini!(&*aws_config);
+
+        let profiles = map.iter().filter(|(sec, _)| sec.starts_with("profile "));
+
+        let mut options: Vec<String> = vec![];
+        for profile in profiles {
+            let replaced_profile = profile.0.replace("profile ", "");
+            options.push(replaced_profile);
+        }
+
+        let ans: Result<String, InquireError> = Select::new("What profile to use?", options).prompt();
+        match ans {
+            Ok(ref choice) => println!("{}! is your choice!", choice),
+            Err(_) => println!("There was an error, please try again"),
+        }
+
+        aws_profile = ans.unwrap();
+
+        let mut region_options: Vec<String> = vec![];
+        region_options.push("eu-north-1".to_string());
+        region_options.push("eu-central-1".to_string());
+        region_options.push("eu-west-2".to_string());
+
+        let region_ans: Result<String, InquireError> = Select::new("What region to use?", region_options).prompt();
+        match region_ans {
+            Ok(ref choice) => println!("{}! is your choice!", choice),
+            Err(_) => println!("There was an error, please try again"),
+        }
+
+        aws_region = region_ans.unwrap();
+    }
 
     match check_sso_session(&aws_profile).await {
         Ok(_) => {
-            // Proceed with ECS client operations if the session exists
-            // let region_provider = RegionProviderChain::first_try(Region::new(aws_region.clone()))
-            //     .or_default_provider();
-
-            // let shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            //     .region(region_provider)
-            //     .profile_name(aws_profile.clone())
-            //     .load()
-            //     .await;
-
             println!("SSO session is active. Proceeding with ECS operations for container: {}", container_name);
         }
         Err(_) => {
-            if prompt_user_for_login() {
-                let status = Command::new("aws")
-                    .arg("--profile")
-                    .arg(aws_profile.clone())
-                    .arg("sso")
-                    .arg("login")
-                    .status()?; // Wait for the command to complete
+            match prompt_user_for_login() {
+                Ok(true) => {
+                    let status = Command::new("aws")
+                        .arg("--profile")
+                        .arg(aws_profile.clone())
+                        .arg("sso")
+                        .arg("login")
+                        .status()?; // Wait for the command to complete
 
-                if !status.success() {
-                    println!("AWS SSO login failed. Exiting the program.");
-                    return Ok(()); // Exit if login fails
+                    if !status.success() {
+                        println!("AWS SSO login failed. Exiting the program.");
+                        return Ok(()); // Exit if login fails
+                    }
+                    println!("Please run `aws sso login` in another terminal, then re-run this program.");
+                },
+                Ok(false) => {
+                    println!("User chose not to log in.");
+                    println!("Exiting the program.");
+                },
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    // Handle the error appropriately
                 }
-                println!("Please run `aws sso login` in another terminal, then re-run this program.");
-            } else {
-                println!("Exiting the program.");
             }
         }
     }
@@ -90,7 +131,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let ecs_client = EcsClient::new(&shared_config);
     let cluster_arn = show_clusters(&ecs_client).await?;
-    let task_arn = show_tasks(&ecs_client, &cluster_arn, &args.service).await?;
+    let mut service = "".to_string();
+    if interactive {
+        let services = list_services(&ecs_client, &cluster_arn).await?;
+
+        // let service_options = services.iter().map(|service| service.service_name().unwrap().to_string()).collect::<Vec<String>>();
+        let service_ans: Result<String, InquireError> = Select::new("What service to use?", services).prompt();
+        match service_ans {
+            Ok(ref choice) => println!("{}! is your choice!", choice),
+            Err(_) => println!("There was an error, please try again"),
+        }
+        service = service_ans.unwrap();
+    } else {
+        let _service = if let Some(service) = args.service.as_deref() {
+            service
+        } else {
+            eprintln!("Error: Service must be provided in non-interactive mode.");
+            std::process::exit(1);
+        };
+    }
+    let task_arn = show_tasks(&ecs_client, &cluster_arn, &service).await?;
 
     let cmd = "aws";
     let args = [
@@ -144,18 +204,31 @@ async fn check_sso_session(profile: &str) -> Result<(), aws_sdk_sts::error::SdkE
     }
 }
 
-fn prompt_user_for_login() -> bool {
+fn prompt_user_for_login() -> InquireResult<bool> {
     println!("No active AWS SSO session found.");
     println!("Please run the following command to login via AWS SSO:");
     println!("  aws sso login");
-    print!("Would you like to retry after logging in? (Y/n): ");
-    io::stdout().flush().unwrap(); // Make sure prompt gets printed immediately
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).expect("Failed to read input");
-    let input = input.trim().to_lowercase();
+    let ans = Confirm::new("Would you like to retry after logging in? (Y/n): ")
+        .with_default(true)
+        .with_help_message("You'll be automatically redirected to the AWS SSO login page.")
+        .prompt();
 
-    input == "y" || input == "yes"
+    match ans {
+        Ok(true) => println!("That's awesome!"),
+        Ok(false) => println!("That's too bad, I've heard great things about it."),
+        Err(_) => println!("Error with questionnaire, try again later"),
+    }
+
+    ans
+    // print!("Would you like to retry after logging in? (Y/n): ");
+    // io::stdout().flush().unwrap(); // Make sure prompt gets printed immediately
+    //
+    // let mut input = String::new();
+    // io::stdin().read_line(&mut input).expect("Failed to read input");
+    // let input = input.trim().to_lowercase();
+    //
+    // input == "y" || input == "yes"
 }
 
 // List your clusters.
@@ -213,4 +286,30 @@ async fn show_tasks(client: &aws_sdk_ecs::Client, cluster_arn: &str, service_nam
     }
 
     Ok("".to_string())
+}
+
+async fn list_services(client: &aws_sdk_ecs::Client, cluster_arn: &str) -> Result<Vec<String>, EcsError> {
+    let resp = client
+        .list_services()
+        .cluster(cluster_arn)
+        .send()
+        .await?;
+
+    let service_arns = resp.service_arns();
+
+    let services = client
+        .describe_services()
+        .cluster(cluster_arn)
+        .set_services(Some(service_arns.into()))
+        .send()
+        .await?;
+
+    let mut services_result = vec![];
+    for service in services.services() {
+        if let Some(service_name) = service.service_name() {
+            services_result.push(service_name.to_string());
+        }
+    }
+
+    Ok(services_result)
 }
