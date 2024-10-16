@@ -9,8 +9,11 @@ use aws_sdk_sts::Client as StsClient;
 use aws_sdk_sts::operation::get_caller_identity::GetCallerIdentityError;
 use std::error::Error;
 use std::process::{Command};
+use aws_sdk_ecs::error::SdkError;
+use aws_sdk_ecs::operation::describe_services::DescribeServicesError;
 use inquire::{Select, Confirm, InquireError};
 use inquire::error::InquireResult;
+use futures::future::try_join_all;
 
 /// A CLI tool to interactively run ECS `execute-command`
 #[derive(Parser, Debug)]
@@ -131,7 +134,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let ecs_client = EcsClient::new(&shared_config);
     let cluster_arn = show_clusters(&ecs_client).await?;
-    let mut service = "".to_string();
+    let service;
     if interactive {
         let services = list_services(&ecs_client, &cluster_arn).await?;
 
@@ -143,12 +146,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         service = service_ans.unwrap();
     } else {
-        let _service = if let Some(service) = args.service.as_deref() {
-            service
-        } else {
+        service = args.service.as_deref().unwrap_or_else(|| {
             eprintln!("Error: Service must be provided in non-interactive mode.");
             std::process::exit(1);
-        };
+        }).to_string();
     }
     let task_arn = show_tasks(&ecs_client, &cluster_arn, &service).await?;
 
@@ -288,28 +289,80 @@ async fn show_tasks(client: &aws_sdk_ecs::Client, cluster_arn: &str, service_nam
     Ok("".to_string())
 }
 
-async fn list_services(client: &aws_sdk_ecs::Client, cluster_arn: &str) -> Result<Vec<String>, EcsError> {
-    let resp = client
-        .list_services()
-        .cluster(cluster_arn)
-        .send()
-        .await?;
+async fn list_services(
+    client: &aws_sdk_ecs::Client,
+    cluster_arn: &str,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut all_service_arns = vec![];
+    let mut next_token = None;
 
-    let service_arns = resp.service_arns();
+    // Collect all service ARNs with pagination
+    loop {
+        let resp = client
+            .list_services()
+            .cluster(cluster_arn)
+            .set_next_token(next_token.clone())
+            .send()
+            .await?;
 
-    let services = client
-        .describe_services()
-        .cluster(cluster_arn)
-        .set_services(Some(service_arns.into()))
-        .send()
-        .await?;
+        // let service_arns = resp.service_arns();
+        // all_service_arns.push(service_arns);
+        let arns: Vec<String> = resp
+            .service_arns()
+            .iter()
+            .cloned()
+            .collect();
 
-    let mut services_result = vec![];
-    for service in services.services() {
-        if let Some(service_name) = service.service_name() {
-            services_result.push(service_name.to_string());
+        all_service_arns.extend(arns);
+
+        next_token = resp.next_token().map(|t| t.to_string());
+        if next_token.is_none() {
+            break;
         }
     }
 
-    Ok(services_result)
+    // Process chunks of services in parallel
+    let chunks = all_service_arns.chunks(10);
+    let mut tasks = vec![];
+
+    for chunk in chunks {
+        let client_clone = client.clone();
+        let cluster = cluster_arn.to_string();
+        let mut services: Vec<String> = vec![];
+        for arns in chunk {
+            services.push(arns.to_string());
+        }
+
+        let task = tokio::spawn(async move {
+            let resp = client_clone
+                .describe_services()
+                .cluster(&cluster)
+                .set_services(Some(services))
+                .send()
+                .await?;
+
+            let service_names: Vec<String> = resp
+                .services()
+                .iter()
+                .filter_map(|s| s.service_name().map(|n| n.to_string()))
+                .collect();
+
+            Ok::<Vec<String>, SdkError<DescribeServicesError>>(service_names)
+        });
+
+        tasks.push(task);
+    }
+
+    // Collect and flatten results
+    let results = try_join_all(tasks).await?;
+
+    // Handle any errors inside the Vec<Result<_, _>>
+    let flattened: Vec<String> = results
+        .into_iter()
+        .collect::<Result<Vec<Vec<String>>, _>>()?  // Collect results, propagating errors
+        .into_iter()
+        .flatten()
+        .collect();
+
+    Ok(flattened)
 }
